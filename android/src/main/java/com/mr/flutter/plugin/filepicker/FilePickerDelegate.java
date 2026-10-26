@@ -381,25 +381,20 @@ public class FilePickerDelegate implements PluginRegistry.ActivityResultListener
         return mimeType == null ? "application/octet-stream" : mimeType;
     }
 
-    private void copyFileToUri(String sourcePath, Uri destination) {
-        try (InputStream input = new FileInputStream(sourcePath);
-             OutputStream output = this.activity.getContentResolver().openOutputStream(destination)) {
-            if (output == null) {
-                throw new IOException("Can't open " + destination);
+    private void copyFileToUri(@Nullable String sourcePath, Uri destination) {
+        final ContentResolver resolver = activity.getContentResolver();
+        try {
+            if (sourcePath == null) throw new IOException("Export source lost (activity recreated)");
+            try (InputStream in = new FileInputStream(sourcePath);
+                 OutputStream out = resolver.openOutputStream(destination, "wt")) {
+                if (out == null) throw new IOException("Can't open " + destination);
+                final byte[] buf = new byte[64 * 1024];
+                for (int n; (n = in.read(buf)) != -1; ) out.write(buf, 0, n);
             }
-            final byte[] buffer = new byte[64 * 1024];
-            int read;
-            while ((read = input.read(buffer)) != -1) {
-                output.write(buffer, 0, read);
-            }
-            output.flush();
-        } catch (IOException e) {
-            Log.i(TAG, "Error while exporting file", e);
-            try {
-                DocumentsContract.deleteDocument(this.activity.getContentResolver(), destination);
-            } catch (Exception ignored) {
-            }
-            finishWithError("Error while saving file", e.getMessage());
+        } catch (Exception e) {
+            Log.e(TAG, "Error while exporting file", e);
+            try { DocumentsContract.deleteDocument(resolver, destination); } catch (Exception ignored) {}
+            finishWithError("export_failed", e.getMessage());
             return;
         }
         finishWithSuccess(destination.toString());
