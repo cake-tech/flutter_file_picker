@@ -164,4 +164,21 @@ class FilePickerIO extends FilePicker {
       lockParentWindow: lockParentWindow,
     );
   }
+
+  @override
+  Future<String?> exportFile({
+    required String sourcePath,
+    String? initialDirectory,
+  }) {
+    if (Platform.isIOS || Platform.isAndroid) {
+      return _channel.invokeMethod<String>("export", {
+        "sourcePath": sourcePath,
+        "initialDirectory": initialDirectory,
+      });
+    }
+    return super.exportFile(
+      sourcePath: sourcePath,
+      initialDirectory: initialDirectory,
+    );
+  }
 }

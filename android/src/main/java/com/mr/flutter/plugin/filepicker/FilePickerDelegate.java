@@ -14,13 +14,16 @@ import android.os.Message;
 import android.os.Parcelable;
 import android.provider.DocumentsContract;
 import android.util.Log;
+import android.webkit.MimeTypeMap;
 
 import androidx.annotation.RequiresApi;
 import androidx.annotation.VisibleForTesting;
 import androidx.core.app.ActivityCompat;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -35,6 +38,7 @@ public class FilePickerDelegate implements PluginRegistry.ActivityResultListener
     private static final String TAG = "FilePickerDelegate";
     private static final int REQUEST_CODE = (FilePickerPlugin.class.hashCode() + 43) & 0x0000ffff;
     private static final int SAVE_FILE_CODE = (FilePickerPlugin.class.hashCode() + 83) & 0x0000ffff;
+    private static final int EXPORT_FILE_CODE = (FilePickerPlugin.class.hashCode() + 123) & 0x0000ffff;
 
     private final Activity activity;
     private MethodChannel.Result pendingResult;
@@ -46,6 +50,7 @@ public class FilePickerDelegate implements PluginRegistry.ActivityResultListener
     private EventChannel.EventSink eventSink;
 
     private byte[] bytes;
+    private String exportSourcePath;
 
     public FilePickerDelegate(final Activity activity) {
         this(
@@ -67,6 +72,26 @@ public class FilePickerDelegate implements PluginRegistry.ActivityResultListener
 
     @Override
     public boolean onActivityResult(final int requestCode, final int resultCode, final Intent data) {
+        // Export existing file
+        if (requestCode == EXPORT_FILE_CODE) {
+            final String sourcePath = this.exportSourcePath;
+            this.exportSourcePath = null;
+            if (resultCode != Activity.RESULT_OK || data == null || data.getData() == null) {
+                Log.i(TAG, "User cancelled the export request");
+                finishWithSuccess(null);
+                return true;
+            }
+            final Uri destination = data.getData();
+            this.dispatchEventStatus(true);
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    copyFileToUri(sourcePath, destination);
+                }
+            }).start();
+            return true;
+        }
+
         // Save file
         if (requestCode == SAVE_FILE_CODE) {
             if (resultCode == Activity.RESULT_OK) {
@@ -322,6 +347,64 @@ public class FilePickerDelegate implements PluginRegistry.ActivityResultListener
         }
     }
 
+    public void exportFile(String sourcePath, String initialDirectory, MethodChannel.Result result) {
+        if (!this.setPendingMethodCallAndResult(result)) {
+            finishWithAlreadyActiveError(result);
+            return;
+        }
+        final File sourceFile = sourcePath == null ? null : new File(sourcePath);
+        if (sourceFile == null || !sourceFile.isFile()) {
+            finishWithError("file_not_found", "No file to export at " + sourcePath);
+            return;
+        }
+        this.exportSourcePath = sourcePath;
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.putExtra(Intent.EXTRA_TITLE, sourceFile.getName());
+        intent.setType(getMimeType(sourceFile.getName()));
+        if (initialDirectory != null && !initialDirectory.isEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, Uri.parse(initialDirectory));
+        }
+        if (intent.resolveActivity(this.activity.getPackageManager()) != null) {
+            this.activity.startActivityForResult(intent, EXPORT_FILE_CODE);
+        } else {
+            Log.e(TAG, "Can't find a valid activity to handle the request. Make sure you've a file explorer installed.");
+            this.exportSourcePath = null;
+            finishWithError("invalid_format_type", "Can't handle the provided file type.");
+        }
+    }
+
+    private static String getMimeType(String fileName) {
+        final int dot = fileName.lastIndexOf('.');
+        final String extension = dot < 0 ? "" : fileName.substring(dot + 1).toLowerCase();
+        final String mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension);
+        return mimeType == null ? "application/octet-stream" : mimeType;
+    }
+
+    private void copyFileToUri(String sourcePath, Uri destination) {
+        try (InputStream input = new FileInputStream(sourcePath);
+             OutputStream output = this.activity.getContentResolver().openOutputStream(destination)) {
+            if (output == null) {
+                throw new IOException("Can't open " + destination);
+            }
+            final byte[] buffer = new byte[64 * 1024];
+            int read;
+            while ((read = input.read(buffer)) != -1) {
+                output.write(buffer, 0, read);
+            }
+            output.flush();
+        } catch (IOException e) {
+            Log.i(TAG, "Error while exporting file", e);
+            try {
+                DocumentsContract.deleteDocument(this.activity.getContentResolver(), destination);
+            } catch (Exception ignored) {
+            }
+            finishWithError("Error while saving file", e.getMessage());
+            return;
+        }
+        finishWithSuccess(destination.toString());
+    }
+
     @SuppressWarnings("unchecked")
     private void finishWithSuccess(Object data) {
         this.dispatchEventStatus(false);
@@ -354,7 +437,7 @@ public class FilePickerDelegate implements PluginRegistry.ActivityResultListener
 
     private void dispatchEventStatus(final boolean status) {
 
-        if(eventSink == null || type.equals("dir")) {
+        if(eventSink == null || "dir".equals(type)) {
             return;
         }
 

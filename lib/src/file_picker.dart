@@ -151,7 +151,8 @@ abstract class FilePicker extends PlatformInterface {
   /// given [fileName] contains forbidden characters.
   ///
   /// [initialDirectory] can be optionally set to an absolute path to specify
-  /// where the dialog should open. Only supported on Linux, macOS, and Windows.
+  /// where the dialog should open. Supported on iOS, Linux, macOS, and Windows.
+  /// On iOS it may also be a `file://` URL.
   ///
   /// The file type filter [type] defaults to [FileType.any]. Optionally,
   /// [allowedExtensions] might be provided (e.g. `[pdf, svg, jpg]`.). Both
@@ -174,4 +175,24 @@ abstract class FilePicker extends PlatformInterface {
     bool lockParentWindow = false,
   }) async =>
       throw UnimplementedError('saveFile() has not been implemented.');
+
+  /// Opens the system save dialog to save a copy of the existing file at
+  /// [sourcePath], without loading it into memory. The saved copy keeps the
+  /// source file's name, and the source file is left in place.
+  ///
+  /// [initialDirectory] can be optionally set to specify where the dialog
+  /// should open. Otherwise it opens in the last used location. On iOS it can
+  /// be an absolute path or a `file://` URL. On Android it must be a
+  /// `content://` document URI, and the system dialog may ignore it.
+  ///
+  /// Only supported on Android and iOS.
+  ///
+  /// Returns `null` if aborted. Returns a [Future<String?>] which resolves to
+  /// the path of the saved copy on iOS, or its `content://` URI on Android,
+  /// if the user saved the file.
+  Future<String?> exportFile({
+    required String sourcePath,
+    String? initialDirectory,
+  }) async =>
+      throw UnimplementedError('exportFile() has not been implemented.');
 }

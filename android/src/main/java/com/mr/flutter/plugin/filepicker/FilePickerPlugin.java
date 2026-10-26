@@ -142,6 +142,13 @@ public class FilePickerPlugin implements MethodChannel.MethodCallHandler, Flutte
             return;
         }
 
+        if (call.method != null && call.method.equals("export")) {
+            String sourcePath = (String) arguments.get("sourcePath");
+            String initialDirectory = (String) arguments.get("initialDirectory");
+            this.delegate.exportFile(sourcePath, initialDirectory, result);
+            return;
+        }
+
         fileType = FilePickerPlugin.resolveType(call.method);
         String[] allowedExtensions = null;
 
